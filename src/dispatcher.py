@@ -36,7 +36,9 @@ def dispatch_once() -> int:
     claimed = db.wfq_claim(slots)
     for row in claimed:
         try:
-            jobs.enqueue_video(row["id"], row["user_id"])
+            # Paper and deck rows use the same fair queue but their own Prefect
+            # deployments/parameters; legacy sources retain the video flow.
+            jobs.enqueue_source(row["id"], row["user_id"], row.get("source", "upload"))
         except Exception as exc:
             # Couldn't reach Prefect — put it back so it's retried next tick.
             db.set_status(row["id"], "pending", error=f"dispatch: {exc}")

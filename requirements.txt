@@ -19,6 +19,12 @@ sentence-transformers>=2.7
 pillow>=10.0
 numpy>=1.24
 
+# Paper ingestion — page-aware PDF text extraction
+pymupdf>=1.24
+
+# Deck ingestion — PPTX slide text, tables, and presenter notes
+python-pptx>=1.0
+
 # Transcript (text) branch — bge semantic embeddings, ONNX (no torch), tiny
 fastembed>=0.3
 

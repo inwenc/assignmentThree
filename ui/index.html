@@ -44,7 +44,7 @@
   <div class="max-w-6xl mx-auto px-6 py-4 flex items-center gap-3">
     <div class="w-8 h-8 rounded-lg bg-coral flex items-center justify-center text-white font-bold display">M</div>
     <span class="font-bold tracking-tight">MomentSearch</span>
-    <span class="text-muted text-sm hidden sm:inline">· visual video search</span>
+    <span class="text-muted text-sm hidden sm:inline">· search every source</span>
     <span id="llmBadge" class="ml-auto text-xs px-3 py-1 rounded-full border border-line text-muted">checking…</span>
   </div>
 </header>
@@ -78,10 +78,12 @@
   <!-- LIBRARY -->
   <section class="bg-card border border-line rounded-2xl p-5 mt-6">
     <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-      <h2 id="libTitle" class="display text-xl font-600">Your videos</h2>
+      <h2 id="libTitle" class="display text-xl font-600">Your library</h2>
       <div id="addTabs" class="flex gap-2">
         <span class="tab active" data-tab="yt">YouTube URL</span>
-        <span class="tab" data-tab="up">Upload</span>
+        <span class="tab" data-tab="up">Video</span>
+        <span class="tab" data-tab="paper">Paper PDF</span>
+        <span class="tab" data-tab="deck">Slide deck</span>
       </div>
     </div>
     <div id="addControls">
@@ -94,11 +96,19 @@
         <input id="upFile" type="file" accept="video/*" class="flex-1 min-w-[220px] text-sm">
         <button id="upBtn" class="bg-ink hover:bg-black text-white text-sm font-semibold rounded-xl px-5 py-2.5">Upload &amp; ingest</button>
       </div>
+      <div id="tab-paper" class="hidden flex gap-2 flex-wrap items-center">
+        <input id="paperFile" type="file" accept="application/pdf,.pdf" class="flex-1 min-w-[220px] text-sm">
+        <button id="paperBtn" class="bg-ink hover:bg-black text-white text-sm font-semibold rounded-xl px-5 py-2.5">Upload paper</button>
+      </div>
+      <div id="tab-deck" class="hidden flex gap-2 flex-wrap items-center">
+        <input id="deckFile" type="file" accept="application/pdf,.pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" class="flex-1 min-w-[220px] text-sm">
+        <button id="deckBtn" class="bg-ink hover:bg-black text-white text-sm font-semibold rounded-xl px-5 py-2.5">Upload deck</button>
+      </div>
       <div id="ingestStatus" class="text-sm text-muted mt-3 min-h-[20px]"></div>
     </div>
     <div id="videos" class="flex flex-wrap gap-2 mt-2"></div>
     <div id="scopeLine" class="hidden text-xs text-muted mt-3"></div>
-    <p id="libNote" class="text-xs text-muted mt-3">YouTube is searched by picture (frames) and transcript; uploads by picture only for now. First ingest downloads the models.</p>
+    <p id="libNote" class="text-xs text-muted mt-3">Add videos, PDF papers, or PDF/PPTX slide decks. Documents retain page or slide locators while they index in the background.</p>
   </section>
 
   <!-- RESULTS -->
@@ -150,12 +160,12 @@ const MODE = window.MS_MODE || "sample";   // "sample" (curated, read-only) | "f
 /* ---------- mode-specific framing ---------- */
 function applyMode(){
   if(MODE==="full"){
-    $("#heroBadge").innerHTML='● Bring your own videos';
-    $("#heroTitle").innerHTML='Ask your videos <span class="text-coral">anything</span> you can see.';
-    $("#heroSub").textContent='Add a YouTube URL or upload a file. MomentSearch finds the exact moments — and plays each one right beside the answer.';
+    $("#heroBadge").innerHTML='● Bring your own sources';
+    $("#heroTitle").innerHTML='Ask your knowledge base <span class="text-coral">anything</span>.';
+    $("#heroSub").textContent='Add a YouTube video, PDF paper, or slide deck. MomentSearch retrieves the exact source location beside each answer.';
     $("#modeLink").textContent='← Back to the sample';     $("#modeLink").href='/';
-    $("#libTitle").textContent='Your videos';
-    $("#libNote").innerHTML='YouTube videos are searched by <b>both</b> what\'s shown (frames) and what\'s said (transcript). Uploaded files are searched by picture only for now — no transcript yet. Tip: unselect the samples to search only your own uploads.';
+    $("#libTitle").textContent='Your library';
+    $("#libNote").innerHTML='Videos are searched by what\'s shown and said. PDF papers keep <b>page</b> locators; PDF/PPTX decks keep <b>slide</b> locators. Tip: unselect samples to search only your own sources.';
   } else {
     $("#heroBadge").innerHTML='● Sample project · four LLM talks, pre-indexed';
     $("#heroTitle").innerHTML='A Deep Dive into <span class="text-coral">LLMs</span>.';
@@ -213,7 +223,7 @@ async function loadVideos(){
   indexedIds.forEach(id=>{ if(!KNOWN.has(id)){ KNOWN.add(id); SELECTED.add(id); }});
   [...KNOWN].forEach(id=>{ if(!indexedIds.has(id)){ KNOWN.delete(id); SELECTED.delete(id); }});
 
-  const srcLabel=v=>v.is_sample?"sample":(v.source==="youtube"?"YouTube":"upload");
+  const srcLabel=v=>v.is_sample?"sample":({youtube:"YouTube",upload:"video",paper:"paper",deck:"deck"}[v.source]||v.source||"source");
   const pct=v=>v.progress?` ${Math.round(v.progress*100)}%`:"";
   // A leading status indicator so each video's state is obvious at a glance.
   function badge(v){
@@ -223,6 +233,9 @@ async function loadVideos(){
       case "queued":    return {icon:"◷", label:"queued",           c:"text-[#8a6d1a]"};
       case "fetching":  return {icon:"⏬", label:"fetching video…",  c:"text-[#8a6d1a]"};
       case "sampling":  return {icon:"⏳", label:"sampling"+pct(v),  c:"text-[#8a6d1a]"};
+      case "parsing":   return {icon:"⏳", label:"parsing"+pct(v),   c:"text-[#8a6d1a]"};
+      case "chunking":  return {icon:"⏳", label:"chunking"+pct(v),  c:"text-[#8a6d1a]"};
+      case "enriching": return {icon:"⏳", label:"enriching"+pct(v), c:"text-[#8a6d1a]"};
       case "embedding": return {icon:"⏳", label:"embedding"+pct(v), c:"text-[#8a6d1a]"};
       case "failed":    return {icon:"⚠", label:"failed",           c:"text-coral2"};
       case "skipped":   return {icon:"⊘", label:"duplicate",        c:"text-muted"};
@@ -287,6 +300,8 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active")); t.classList.add("active");
   $("#tab-yt").classList.toggle("hidden",t.dataset.tab!=="yt");
   $("#tab-up").classList.toggle("hidden",t.dataset.tab!=="up");
+  $("#tab-paper").classList.toggle("hidden",t.dataset.tab!=="paper");
+  $("#tab-deck").classList.toggle("hidden",t.dataset.tab!=="deck");
 });
 
 /* Ingestion is a QUEUE — register returns 202 instantly and the worker(s)
@@ -294,7 +309,7 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
    queued (you can add more right away) and let a single background refresher
    update the chips until nothing is processing. Per-video progress shows on
    the chips themselves (sampling… / embedding 40%). */
-const _INFLIGHT=["pending","queued","fetching","sampling","embedding"];
+const _INFLIGHT=["pending","queued","fetching","sampling","parsing","chunking","enriching","embedding"];
 let _refresher=null;
 function startRefresher(){
   if(_refresher) return;
@@ -336,6 +351,30 @@ $("#upBtn").onclick=async()=>{ const f=$("#upFile").files[0]; if(!f)return;
     $("#upFile").value="";   // clear so you can pick the next file right away
   }catch(e){ st.textContent="Error: "+e.message; $("#upBtn").disabled=false; }
 };
+
+async function uploadDocument(kind, fileInput, button){
+  const f=$(fileInput).files[0]; if(!f)return;
+  const st=$("#ingestStatus"); button.disabled=true;
+  try{
+    st.textContent="Uploading "+(kind==="paper"?"paper…":"deck…");
+    const pre=await fetch("/admin/documents/presign",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({filename:f.name,content_type:f.type||"application/octet-stream",size:f.size,kind})});
+    if(!pre.ok){ const e=await pre.json().catch(()=>({})); throw new Error(e.detail||pre.statusText); }
+    const p=await pre.json();
+    const put=await fetch(p.url,{method:"PUT",headers:p.headers,body:f});
+    if(!put.ok) throw new Error("upload failed ("+put.status+")");
+    const registered=await fetch("/admin/documents",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({uri:"storage://"+p.key,kind,title:f.name.replace(/\.[^.]+$/,"")})});
+    if(!registered.ok){ const e=await registered.json().catch(()=>({})); throw new Error(e.detail||registered.statusText); }
+    st.textContent="Queued — processing in the background. Add another anytime.";
+    $(fileInput).value=""; loadVideos(); startRefresher();
+  }catch(e){ st.textContent="Error: "+e.message; }
+  finally{ button.disabled=false; }
+}
+$("#paperBtn").onclick=()=>uploadDocument("paper","#paperFile",$("#paperBtn"));
+$("#deckBtn").onclick=()=>uploadDocument("deck","#deckFile",$("#deckBtn"));
 
 /* ---------- ask ---------- */
 const qEl=$("#q");

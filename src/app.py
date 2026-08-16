@@ -22,6 +22,7 @@ from fastapi import FastAPI
 
 from . import config, db
 from .api.search import router as search_router
+from .api.admin import router as admin_router
 from .api.videos import router as videos_router
 from .rag import vector_store
 
@@ -43,4 +44,5 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MomentSearch", version="1.0.0", lifespan=lifespan)
 app.include_router(videos_router)
+app.include_router(admin_router)
 app.include_router(search_router)

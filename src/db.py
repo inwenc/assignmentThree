@@ -219,7 +219,7 @@ def wfq_claim(limit: int) -> list[dict]:
             """
             UPDATE ms_videos SET status = 'queued', updated_at = now()
             WHERE id = ANY(%s) AND status = 'pending'
-            RETURNING id, user_id
+            RETURNING id, user_id, source
             """,
             (ids,),
         ).fetchall()
