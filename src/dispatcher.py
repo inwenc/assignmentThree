@@ -1,6 +1,6 @@
 """Fair dispatcher — the WFQ scheduler that sits in front of Prefect.
 
-Why this exists: if the API enqueued every video to Prefect at register-time,
+Why this exists: if the API enqueued every source to Prefect at register-time,
 Prefect would run them in submitted order (FIFO) — one user who uploads 50
 videos blocks everyone behind them. Instead, videos wait `pending` in Postgres
 and THIS loop admits them:
@@ -8,7 +8,7 @@ and THIS loop admits them:
   every DISPATCH_INTERVAL_S:
     slots = DISPATCH_MAX_INFLIGHT - (videos currently queued/running)
     claim up to `slots` pending videos in FAIR order (round-robin across users)
-    schedule a Prefect run for each
+    schedule the matching video, paper, or deck Prefect run
 
 Because only ~capacity videos are ever handed to Prefect at once, the *waiting
 line lives in our DB, fairly ordered* (db.wfq_claim) rather than FIFO inside
@@ -28,7 +28,7 @@ from . import config, db, jobs
 
 
 def dispatch_once() -> int:
-    """Admit as many fairly-chosen pending videos as free capacity allows.
+    """Admit as many fairly-chosen pending sources as free capacity allows.
     Returns how many were dispatched this tick."""
     slots = config.DISPATCH_MAX_INFLIGHT - db.count_inflight()
     if slots <= 0:
@@ -43,7 +43,7 @@ def dispatch_once() -> int:
             # Couldn't reach Prefect — put it back so it's retried next tick.
             db.set_status(row["id"], "pending", error=f"dispatch: {exc}")
     if claimed:
-        print(f"[dispatch] admitted {len(claimed)} video(s) "
+        print(f"[dispatch] admitted {len(claimed)} source(s) "
               f"({db.count_inflight()}/{config.DISPATCH_MAX_INFLIGHT} in flight)")
     return len(claimed)
 

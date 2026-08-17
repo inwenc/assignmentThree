@@ -9,7 +9,7 @@ executes up to WORKER_CONCURRENCY runs at once.
 
 Sample seeding is NOT done here — it's a one-shot startup gate (seed.py /
 src/seeding.py) that the whole stack waits on, so the app never serves a
-half-indexed corpus. This worker only handles user uploads + YouTube adds.
+half-indexed corpus. This worker handles videos, papers, and decks.
 
 Embedding goes to the warm CLIP service when CLIP_SERVICE_URL is set
 (docker-compose default); unset, each run loads the model in-process.
@@ -42,7 +42,7 @@ def main():
     init_schema()  # make sure migrations ran before consuming runs
     from .rag import vector_store
     vector_store.ensure_collection()  # up front, not mid-first-ingest
-    # Fair scheduler (WFQ): admits pending videos round-robin across users so
+    # Fair scheduler (WFQ): admits pending sources round-robin across users so
     # one bulk uploader can't starve everyone else (src/dispatcher.py).
     from . import dispatcher
     dispatcher.start_in_background()

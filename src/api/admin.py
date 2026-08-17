@@ -147,7 +147,7 @@ def register_document(req: DocumentRequest, uid: str = Depends(user_id)):
             "flow_run_id": flow_run_id}
 
 
-@router.get("/sources")
+@router.get("/sources", dependencies=[Depends(require_auth)])
 def list_sources(uid: str = Depends(user_id)):
     """One status list for legacy videos and new paper/deck source rows."""
     sources = []
