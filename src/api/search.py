@@ -210,6 +210,25 @@ def video(video_id: str, u: str | None = None,
                                       "Content-Length": str(length)})
 
 
+@router.get("/api/document/{source_id}")
+def document(source_id: str, u: str | None = None):
+    """Serve a stored paper/deck in local development for citation links."""
+    if storage.presign_capable():
+        raise HTTPException(404, "Documents are served from object storage.")
+    uid = _uid(u)
+    row = db.get_video(source_id)
+    if (row is None or row["user_id"] != uid or row.get("source") not in {"paper", "deck"}
+            or not row.get("storage_key")):
+        raise HTTPException(404, "Document not found.")
+    path = storage.local_path(row["storage_key"])
+    if not path.exists():
+        raise HTTPException(404, "Document file not found.")
+    media_type = ("application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  if path.suffix.lower() == ".pptx" else "application/pdf")
+    return FileResponse(path, media_type=media_type,
+                        headers={"Cache-Control": "private, max-age=3600"})
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 def _render(mode: str) -> str:

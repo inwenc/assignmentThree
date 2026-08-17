@@ -19,13 +19,27 @@ from ..config import (BRANCH_TOP_K, CONFIDENCE_THRESHOLD, CROSS_MODAL_BOOST,
 from . import vector_store
 from .embeddings import embed_query, embed_text
 
-ABSTAIN = ("I couldn't find that in your videos — nothing indexed looks "
-           "related to the question (neither what's on screen nor what's said).")
+ABSTAIN = ("I couldn't find that in your sources — nothing indexed looks "
+           "related to the question.")
+_DOCUMENT_KINDS = {"paper", "deck"}
 
 
 def _seconds(ms: int) -> str:
     s = ms // 1000
     return f"{s // 60:02d}:{s % 60:02d}"
+
+
+def _source_id(hit: dict) -> str:
+    return str(hit.get("source_id") or hit["video_id"])
+
+
+def _document_locator(hit: dict) -> tuple[str, int] | None:
+    kind = hit.get("kind")
+    if kind == "paper" and hit.get("page") is not None:
+        return ("page", int(hit["page"]))
+    if kind == "deck" and hit.get("slide") is not None:
+        return ("slide", int(hit["slide"]))
+    return None
 
 
 def _fuse(visual_hits: list[dict], text_hits: list[dict]) -> list[dict]:
@@ -49,11 +63,19 @@ def _fuse(visual_hits: list[dict], text_hits: list[dict]) -> list[dict]:
     # a given modality is that modality's best hit there.
     for h in sorted(ranked(visual_hits, "frame") + ranked(text_hits, "text"),
                     key=lambda x: x["rrf"], reverse=True):
-        w = next((w for w in windows if w["video_id"] == h["video_id"]
-                  and abs(w["t"] - h["t"]) <= FUSION_WINDOW_S), None)
+        source_id = _source_id(h)
+        locator = _document_locator(h)
+        # Documents have no timeline. Merge only chunks that cite the same
+        # exact page/slide; otherwise a paper's entire contents would collapse
+        # into a fake t=0 moment.
+        w = next((w for w in windows
+                  if w["source_id"] == source_id
+                  and ((locator is not None and w["locator"] == locator)
+                       or (locator is None and w["locator"] is None
+                           and abs(w["t"] - h["t"]) <= FUSION_WINDOW_S))), None)
         if w is None:
-            w = {"video_id": h["video_id"], "t": h["t"], "rrf": 0.0,
-                 "modalities": set(), "frame": None, "text": None}
+            w = {"source_id": source_id, "t": h["t"], "locator": locator,
+                 "rrf": 0.0, "modalities": set(), "frame": None, "text": None}
             windows.append(w)
         w["modalities"].add(h["modality"])
         slot = "frame" if h["modality"] == "frame" else "text"
@@ -74,12 +96,26 @@ def _fuse(visual_hits: list[dict], text_hits: list[dict]) -> list[dict]:
     return windows
 
 
-def _deeplink(video: dict | None, video_id: str, ms: int) -> str:
+def _video_deeplink(video: dict | None, video_id: str, ms: int) -> str:
     secs = ms // 1000
     if video and video.get("source") == "youtube" and video.get("url"):
         sep = "&" if "?" in video["url"] else "?"
         return f"{video['url']}{sep}t={secs}"
     return f"/api/video/{video_id}#t={secs}"
+
+
+def _document_deeplink(source: dict | None, user_id: str, source_id: str,
+                       kind: str, locator: dict[str, int]) -> str:
+    """Open a source at its retrieved page/slide when the format supports it."""
+    if source and source.get("url"):
+        base = source["url"].split("#", 1)[0]
+    elif source and source.get("storage_key") and storage.presign_capable():
+        base = storage.presign_get(source["storage_key"])
+    else:
+        base = f"/api/document/{source_id}?u={user_id}"
+    if kind == "paper":
+        return f"{base}#page={locator['page']}"
+    return f"{base}#slide={locator['slide']}"
 
 
 def _thumb_url(user_id: str, video_id: str, idx: int) -> str:
@@ -116,38 +152,59 @@ def retrieve(question: str, user_id: str, *, top_k: int | None = None,
                                 video_id=video_id, video_ids=video_ids)
     best_visual = vhits[0]["score"] if vhits else 0.0
 
-    # Text branch — bge query→transcript-chunk (only if transcript is enabled).
+    # Text branch — bge query→transcript/document chunks. It must run even when
+    # video transcripts are disabled because papers and decks live here too.
     thits: list[dict] = []
     best_text = 0.0
-    if config.ENABLE_TRANSCRIPT:
-        thits = vector_store.search_text(embed_query(question), user_id,
-                                         top_k=BRANCH_TOP_K, video_id=video_id,
-                                         video_ids=video_ids)
-        best_text = thits[0]["score"] if thits else 0.0
+    thits = vector_store.search_text(embed_query(question), user_id,
+                                     top_k=BRANCH_TOP_K, video_id=video_id,
+                                     video_ids=video_ids)
+    best_text = thits[0]["score"] if thits else 0.0
 
     windows = _fuse(vhits, thits)[:k]
-    videos = db.videos_by_ids(sorted({w["video_id"] for w in windows}))
+    sources = db.videos_by_ids(sorted({w["source_id"] for w in windows}))
     citations = []
     for i, w in enumerate(windows, 1):
-        vid = w["video_id"]
-        meta = videos.get(vid)
+        source_id = w["source_id"]
+        meta = sources.get(source_id)
         fr, tx = w["frame"], w["text"]
+        evidence = tx or fr or {}
+        kind = evidence.get("kind") or (meta or {}).get("source")
+        kind = kind if kind in _DOCUMENT_KINDS else "video"
+        document_locator = _document_locator(evidence)
         # Anchor on the frame's exact timestamp when there is one (precise visual
         # seek); otherwise the transcript chunk's start.
         ms = int(fr["ms"]) if fr else int(w["t"] * 1000)
         idx = int(fr["idx"]) if fr else None
+        if kind == "paper":
+            locator = {"page": document_locator[1]}
+            location = f"p. {locator['page']}"
+            deeplink = _document_deeplink(meta, user_id, source_id, kind, locator)
+        elif kind == "deck":
+            locator = {"slide": document_locator[1]}
+            location = f"slide {locator['slide']}"
+            deeplink = _document_deeplink(meta, user_id, source_id, kind, locator)
+        else:
+            end_ms = int(float((tx or {}).get("t_end", ms / 1000.0)) * 1000)
+            locator = {"start_ms": ms, "end_ms": end_ms}
+            location = _seconds(ms)
+            deeplink = _video_deeplink(meta, source_id, ms)
         citations.append({
             "n": i,
-            "video_id": vid,
-            "title": (meta or {}).get("title") or vid,
+            "sourceId": source_id,
+            "source_id": source_id,
+            "video_id": source_id,  # UI/search compatibility during migration
+            "kind": kind,
+            "locator": locator,
+            "title": (meta or {}).get("title") or source_id,
             "url": (meta or {}).get("url"),
             "source": (meta or {}).get("source"),
             "ms": ms,
-            "timestamp": _seconds(ms),
+            "timestamp": location,
             "idx": idx,
-            "thumbnail": _thumb_url(user_id, vid, idx) if idx is not None else None,
-            "media_url": _media_url(meta, user_id, vid),
-            "deeplink": _deeplink(meta, vid, ms),
+            "thumbnail": _thumb_url(user_id, source_id, idx) if idx is not None else None,
+            "media_url": _media_url(meta, user_id, source_id),
+            "deeplink": deeplink,
             "score": round(w["rrf"], 4),
             "transcript": (tx or {}).get("text"),
             "modalities": sorted(w["modalities"]),
@@ -161,7 +218,7 @@ def _fallback_answer(citations: list[dict[str, Any]]) -> str:
     top = citations[0]
     where = f"{top['title']} at {top['timestamp']}" if top.get("title") else top["timestamp"]
     others = ", ".join(f"{c['timestamp']} [{c['n']}]" for c in citations[1:4])
-    msg = f"Closest visual match: {where} [{top['n']}] (similarity {top['score']})."
+    msg = f"Closest retrieved source: {where} [{top['n']}] (similarity {top['score']})."
     if others:
         msg += f" Other relevant moments: {others}."
     return msg
@@ -216,7 +273,7 @@ def ask(question: str, user_id: str, *, top_k: int | None = None,
     result: dict[str, Any] = {"question": question, "citations": citations}
 
     if not citations:
-        result.update(answer="No relevant moments were found. Try ingesting a video first.",
+        result.update(answer="No relevant sources were found. Try ingesting a source first.",
                       llm_used=False, abstained=True)
         return result
 

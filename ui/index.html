@@ -116,7 +116,7 @@
     <article id="article" class="max-w-3xl"></article>
     <div class="flex items-center justify-between mt-10 mb-4">
       <h3 class="display text-2xl font-600">Moments</h3>
-      <span class="text-muted text-sm">Click any moment to play it here.</span>
+      <span class="text-muted text-sm">Open the exact video moment, paper page, or slide.</span>
     </div>
     <div id="sources" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
   </section>
@@ -406,9 +406,13 @@ $("#go").onclick=async()=>{
 function renderSources(){
   $("#sources").innerHTML=CITES.map(c=>{
     const mods=(c.modalities||[]);
-    const tags=mods.map(m=>m==="frame"
-      ? '<span class="text-[9px] px-1 rounded bg-coral/15 text-coral2">seen</span>'
-      : '<span class="text-[9px] px-1 rounded bg-[#cfe8d6] text-[#1f7a43]">said</span>').join(" ");
+    const tags=(c.kind==="paper")
+      ? '<span class="text-[9px] px-1 rounded bg-[#dbeafe] text-[#1d4ed8]">paper</span>'
+      : (c.kind==="deck")
+        ? '<span class="text-[9px] px-1 rounded bg-[#ede9fe] text-[#6d28d9]">deck</span>'
+        : mods.map(m=>m==="frame"
+          ? '<span class="text-[9px] px-1 rounded bg-coral/15 text-coral2">seen</span>'
+          : '<span class="text-[9px] px-1 rounded bg-[#cfe8d6] text-[#1f7a43]">said</span>').join(" ");
     // Text-only moments have no frame; they're always YouTube, so fall back to
     // the video's thumbnail instead of an empty "(no frame)" placeholder.
     const yid = ytId(c);
@@ -440,6 +444,12 @@ function ytId(c){ if(c.video_id&&c.video_id.startsWith("yt_")) return c.video_id
   const m=(c.url||"").match(/(?:youtu\.be\/|v=)([\w-]{11})/); return m?m[1]:null; }
 function playCitation(n){
   const c=CITES.find(x=>x.n===n); if(!c)return;
+  if(c.kind==="paper" || c.kind==="deck"){
+    // PDF viewers understand #page=N. PPTX files still open at the retrieved
+    // source and retain #slide=N as an explicit, copyable locator.
+    window.open(c.deeplink,"_blank","noopener");
+    return;
+  }
   const secs=Math.floor((c.ms||0)/1000);
   $("#mTitle").textContent=c.title||c.video_id;
   $("#mMeta").textContent = c.transcript ? `“${c.transcript}”` : `Moment at ${c.timestamp}`;
