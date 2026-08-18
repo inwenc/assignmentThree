@@ -156,6 +156,7 @@ def list_sources(uid: str = Depends(user_id)):
         kind = source if source in _KINDS else "video"
         sources.append({"id": row["id"], "kind": kind, "status": row.get("status"),
                         "title": row.get("title"), "pct": row.get("progress"),
+                        "chunk_count": row.get("frame_count"),
                         "error": row.get("error"), "created_at": row.get("created_at"),
                         "updated_at": row.get("updated_at")})
     return {"sources": sources}
