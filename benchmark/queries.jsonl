@@ -1,0 +1,4 @@
+{"query":"What are the three RAG paradigms described in the survey?","expected":[{"title":"RAG Survey","kind":"paper","locator":{"page":1}}]}
+{"query":"What are the three steps in the RAG process?","expected":[{"title":"RAG Survey","kind":"paper","locator":{"page":3}}]}
+{"query":"What memories do RAG models combine?","expected":[{"title":"RAG: Knowledge-Intensive NLP Tasks","kind":"paper","locator":{"page":1}}]}
+{"query":"How do RAG-Sequence and RAG-Token differ?","expected":[{"title":"RAG: Knowledge-Intensive NLP Tasks","kind":"paper","locator":{"page":3}}]}
