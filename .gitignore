@@ -27,7 +27,7 @@ node_modules/
 dist/
 
 # Benchmark
-benchmark/
+#benchmark/
 
 # Internal design notes (not published)
 MULTIMODAL_RETRIEVAL.md
