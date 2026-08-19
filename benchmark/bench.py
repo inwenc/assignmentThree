@@ -28,6 +28,7 @@ import shlex
 import statistics
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -106,9 +107,18 @@ def request_document(doc):
 
 
 def delete_sources(source_ids):
-    """Remove accept-latency probes. Best-effort because a worker may claim one."""
+    """Remove accept-latency probes without delaying the benchmark.
+
+    Deletion may wait on a remote Qdrant delete. It is housekeeping only, so
+    each request runs in a bounded daemon thread rather than turning the
+    accept-latency check into thirty sequential delete waits.
+    """
+    def delete_one(source_id):
+        _req("DELETE", f"/api/videos/{urllib.parse.quote(source_id)}",
+             token=ADMIN, timeout=3)
+
     for source_id in source_ids:
-        _req("DELETE", f"/api/videos/{urllib.parse.quote(source_id)}", token=ADMIN)
+        threading.Thread(target=delete_one, args=(source_id,), daemon=True).start()
 
 
 def measure_accept_latency(n=30):
